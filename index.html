@@ -1,173 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Code Editor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- CodeMirror CSS -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css">
+  <meta charset="UTF-8">
+  <title>Innocent Code Editor</title>
   <style>
     body {
-      margin: 0;
       background: #1e1e1e;
       color: #d4d4d4;
       font-family: monospace;
+      margin: 0;
       height: 100vh;
       display: flex;
       flex-direction: column;
     }
-    #entry {
-      margin: auto;
-      text-align: center;
-    }
-    input, button {
-      padding: 8px;
-      margin: 5px;
-      font-size: 16px;
-    }
     #editor {
       flex: 1;
-      height: 80vh;
+      padding: 10px;
+      outline: none;
+      white-space: pre-wrap;
+      overflow-y: auto;
     }
-    #bottom {
-      display: flex;
-      padding: 8px;
+    #status {
+      padding: 5px;
       background: #252526;
-    }
-    #msg {
-      flex: 1;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      border: 1px solid #333;
-      padding: 6px;
-      font-family: monospace;
-    }
-    #send, #ping {
-      margin-left: 8px;
-      padding: 6px 12px;
-      background: #0e639c;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-    #overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(30,30,30,0.95);
-      color: white;
-      display: none;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px;
-      z-index: 10;
+      font-size: 12px;
+      color: #6a9955;
     }
   </style>
 </head>
 <body>
-  <div id="entry">
-    <h2 style="color:white;">Enter Secret Phrase</h2>
-    <input id="secret" placeholder="Secret phrase"/>
-    <button onclick="joinRoom()">Open</button>
-  </div>
+  <div id="status">Waiting for connection...</div>
+  <div id="editor" contenteditable="true">// Start typing your "code" here...</div>
 
-  <div id="chat" style="display:none; flex:1; flex-direction:column;">
-    <div id="editor"></div>
-    <div id="bottom">
-      <input id="msg" placeholder="Type here..." />
-      <button id="send">Send</button>
-      <button id="ping">Ping</button>
-    </div>
-  </div>
-
-  <div id="overlay">⏳ Session Ended</div>
-
-  <!-- CodeMirror + PeerJS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/javascript/javascript.min.js"></script>
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- PeerJS library -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    let editor, peer, conn, room, timer;
-    let sessionTimer;
+    const urlParams = new URLSearchParams(window.location.search);
+    const room = urlParams.get("room") || prompt("Enter secret room name:");
+    const id = Math.random().toString(36).substring(2, 9);
 
-    function joinRoom() {
-      room = document.getElementById('secret').value.trim();
-      if (!room) return;
-      document.getElementById('entry').style.display = 'none';
-      document.getElementById('chat').style.display = 'flex';
+    const status = document.getElementById('status');
+    const editor = document.getElementById('editor');
 
-      // Initialize CodeMirror
-      editor = CodeMirror(document.getElementById('editor'), {
-        lineNumbers: true,
-        mode: "javascript",
-        theme: "default",
-        readOnly: true
+    let peer, conn;
+
+    function initPeer() {
+      // 👇 CHANGE THIS to your deployed PeerJS server
+      peer = new Peer(id, {
+        host: 'your-app.onrender.com',  // e.g. "myrelay.onrender.com"
+        port: 443,
+        secure: true,
+        path: '/peerjs' // default PeerJS path
       });
 
-      // Create PeerJS ID based on phrase
-      peer = new Peer(room + "-host", { debug: 2 });
-
-      peer.on('open', id => {
-        console.log("Host ID:", id);
-      });
-
-      peer.on('connection', c => {
-        if (conn) { c.close(); return; }
-        conn = c;
-        setupConnection();
-      });
-
-      peer.on('error', () => {
-        // If host taken, connect as client
-        peer = new Peer();
-        peer.on('open', () => {
-          conn = peer.connect(room + "-host");
-          conn.on('open', setupConnection);
-        });
-      });
-    }
-
-    function setupConnection() {
-      editor.setValue("// Connected. Session live for 2 hrs.\n");
-      conn.on('data', data => {
-        if (data.type === "msg") {
-          addLine("// " + data.text);
-          setTimeout(() => editor.setValue(editor.getValue().replace("// " + data.text + "\n", "")), 600000);
-        } else if (data.type === "ping") {
-          addLine("// Someone is here 👀");
-          setTimeout(() => editor.setValue(editor.getValue().replace("// Someone is here 👀\n", "")), 600000);
+      peer.on('open', () => {
+        status.textContent = "Peer ready. ID: " + id;
+        if (id.localeCompare(room) > 0) {
+          // act as host
+          tryHost();
+        } else {
+          // act as client
+          tryClient();
         }
       });
 
-      document.getElementById('send').onclick = sendMessage;
-      document.getElementById('ping').onclick = () => {
-        conn.send({type:"ping"});
-        addLine("// You pinged them");
-        setTimeout(() => editor.setValue(editor.getValue().replace("// You pinged them\n", "")), 600000);
-      };
-
-      // 2 hour session limit
-      sessionTimer = setTimeout(() => endSession(), 2*60*60*1000);
+      peer.on('connection', (c) => {
+        conn = c;
+        setupConn();
+      });
     }
 
-    function sendMessage() {
-      const text = document.getElementById('msg').value.trim();
-      if (!text) return;
-      conn.send({type:"msg", text});
-      addLine("console.log(\"" + text + "\");");
-      setTimeout(() => editor.setValue(editor.getValue().replace("console.log(\"" + text + "\");\n", "")), 600000);
-      document.getElementById('msg').value = "";
+    function tryHost() {
+      status.textContent = "Hosting room " + room + "... waiting for peer";
     }
 
-    function addLine(line) {
-      editor.setValue(editor.getValue() + line + "\n");
+    function tryClient() {
+      status.textContent = "Connecting to host...";
+      conn = peer.connect(room);
+      conn.on('open', setupConn);
     }
 
-    function endSession() {
-      document.getElementById('chat').style.display = 'none';
-      document.getElementById('overlay').style.display = 'flex';
-      if (conn) conn.close();
-      if (peer) peer.destroy();
+    function setupConn() {
+      status.textContent = "Connected!";
+      conn.on('data', (data) => {
+        editor.innerText = data;
+      });
+
+      // Send updates as user types
+      editor.addEventListener('input', () => {
+        if (conn.open) conn.send(editor.innerText);
+      });
     }
+
+    initPeer();
   </script>
 </body>
 </html>
