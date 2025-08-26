@@ -1,141 +1,425 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Code Editor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css">
-  <style>
-    body { margin:0; background:#1e1e1e; color:#d4d4d4; font-family:monospace; height:100vh; display:flex; flex-direction:column; }
-    #entry { margin:auto; text-align:center; }
-    input,button { padding:8px; margin:5px; font-size:16px; }
-    #statusBar { padding:6px; background:#333; font-size:14px; text-align:center; }
-    #editor { flex:1; height:80vh; }
-    #bottom { display:flex; padding:8px; background:#252526; }
-    #msg { flex:1; background:#1e1e1e; color:#d4d4d4; border:1px solid #333; padding:6px; font-family:monospace; }
-    #send,#ping { margin-left:8px; padding:6px 12px; background:#0e639c; color:white; border:none; cursor:pointer; }
-    #overlay { position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(30,30,30,0.95); color:white;
-               display:none; justify-content:center; align-items:center; font-size:24px; z-index:10; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>codepad — editor</title>
+
+<!-- CodeMirror -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css"/>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#151822; --muted:#9aa3b2; --text:#dbe3ef;
+  }
+  html,body{height:100%; margin:0; background:var(--bg); color:var(--text); font-family:Inter,ui-monospace,monospace;}
+  .center{max-width:720px;margin:70px auto;padding:20px;background:var(--panel);border-radius:12px;border:1px solid #1f2430;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  h1{margin:0 0 8px;font-size:18px}
+  p{margin:0 0 12px;color:var(--muted);font-size:13px}
+  input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid #222631;background:#0b0f18;color:var(--text);font-size:14px}
+  button{padding:8px 12px;border-radius:8px;border:1px solid #2b3346;background:#0d1220;color:var(--text);cursor:pointer;margin-left:8px}
+  #statusBar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:8px 12px;background:#0b0d12;border-radius:8px;margin-top:12px;font-size:13px;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .dot.red{background:#ef4444}.dot.yellow{background:#f59e0b}.dot.green{background:#22c55e}
+  #main{display:none;height:75vh;margin-top:18px;display:flex;flex-direction:column}
+  #editor{flex:1;border-radius:8px;overflow:hidden;border:1px solid #10131a}
+  #composer{display:flex;gap:8px;padding:10px;background:#0b0f15;border-top:1px solid #0f1520}
+  #msg{flex:1;padding:10px;border-radius:8px;border:1px solid #171a23;background:#0b0f15;color:var(--text)}
+  #send,#ping{padding:8px 12px;border-radius:8px;border:1px solid #213144;background:#0c3a57;color:#fff;cursor:pointer}
+  #overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.9);z-index:999}
+  #overlay .card{background:#071029;padding:26px;border-radius:12px;border:1px solid #102133;color:var(--text);text-align:center}
+  .hint{color:var(--muted);font-size:13px;margin-top:8px}
+  @media (max-width:640px){ .center{margin:12px;padding:12px} }
+</style>
 </head>
 <body>
-  <div id="entry">
-    <h2 style="color:white;">Enter Secret Phrase</h2>
-    <input id="secret" placeholder="Secret phrase"/>
-    <button onclick="joinRoom()">Open</button>
-    <p style="color:gray;font-size:14px;">Both people must enter the exact same phrase.</p>
-  </div>
 
-  <div id="chat" style="display:none; flex:1; flex-direction:column;">
-    <div id="statusBar">🔴 Not connected</div>
-    <div id="editor"></div>
-    <div id="bottom">
-      <input id="msg" placeholder="Type here..." />
-      <button id="send">Send</button>
-      <button id="ping">Ping</button>
+<div class="center" id="entryWrap">
+  <h1>Open file</h1>
+  <p>Enter a <b>secret phrase</b> (both must use exact same). This looks like a code editor but it's actually your private ephemeral chatroom.</p>
+  <input id="phraseInput" type="text" placeholder="e.g. mango42" autocomplete="off"/>
+  <div style="margin-top:10px;display:flex;align-items:center;justify-content:flex-end">
+    <div style="flex:1" class="hint">No accounts. No logs. Messages expire after 10 minutes. Session auto-closes after 2 hours.</div>
+    <button id="openBtn">Open</button>
+  </div>
+  <div id="hintArea" class="hint" style="margin-top:8px"></div>
+</div>
+
+<!-- main UI -->
+<div class="center" id="main" aria-hidden="true">
+  <div id="statusBar">
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="dot red" id="connDot"></div>
+      <div id="connText">Not connected</div>
+      <div id="roomLabel" class="hint">room: —</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="hint">msg expiry: <b>10m</b></div>
+      <div id="timer" class="hint">02:00:00</div>
     </div>
   </div>
 
-  <div id="overlay">⏳ Session Ended</div>
+  <div id="editor"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/javascript/javascript.min.js"></script>
-  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
-  <script>
-    let editor, peer, conn, sessionTimer;
-    let isInitiator = false;
+  <div id="composer">
+    <button id="ping">Ping</button>
+    <input id="msg" type="text" placeholder="Type and press Enter…" autocomplete="off"/>
+    <button id="send">Send</button>
+  </div>
+</div>
 
-    function setStatus(text, color) {
-      const bar = document.getElementById("statusBar");
-      bar.innerText = text;
-      bar.style.color = color;
+<!-- overlay when session ends -->
+<div id="overlay"><div class="card"><h2>Session ended</h2><p style="color:#9fb0c9">2 hours are up — connection closed, messages wiped.</p><div style="height:10px"></div><button onclick="location.reload()">Start new</button></div></div>
+
+<!-- libs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/javascript/javascript.min.js"></script>
+<script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+
+<script>
+/*
+  Lightweight ephemeral P2P chat (disguised as code editor).
+  Signaling via public WebSocket relay; fallback to URL-hash manual method if relay fails.
+*/
+
+const EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+const SESSION_MS = 2 * 60 * 60 * 1000; // 2 hours
+const SIGNAL_WS = 'wss://signaling.openrelay.metered.ca'; // public relay (may be intermittent)
+let editor, peer, ws, room, sessionStart, sessionTimer;
+let messages = []; // {lineText, ts}
+
+// UI refs
+const entryWrap = document.getElementById('entryWrap');
+const mainWrap = document.getElementById('main');
+const openBtn = document.getElementById('openBtn');
+const phraseInput = document.getElementById('phraseInput');
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+const roomLabel = document.getElementById('roomLabel');
+const hintArea = document.getElementById('hintArea');
+const msgInput = document.getElementById('msg');
+const sendBtn = document.getElementById('send');
+const pingBtn = document.getElementById('ping');
+const overlay = document.getElementById('overlay');
+const timerEl = document.getElementById('timer');
+
+// CodeMirror init helper
+function initEditor(){
+  editor = CodeMirror(document.getElementById('editor'), {
+    value: "// codepad: messages look like code and self-destruct.\n\n",
+    mode: 'javascript',
+    lineNumbers: true,
+    readOnly: 'nocursor',
+    theme: 'default'
+  });
+}
+
+// helpers
+function setStatus(text, colorClass){
+  connText.textContent = text;
+  connDot.className = 'dot ' + (colorClass || 'red');
+}
+function shortRoom(r){ return r.length>12 ? r.slice(0,10)+'…' : r; }
+function ts(){ return new Date().toLocaleTimeString([], {hour12:false}); }
+
+function appendLine(line){
+  const doc = editor.getDoc();
+  doc.replaceRange(line + '\n', {line: doc.lastLine()+1, ch:0});
+  messages.push({text: line, at: Date.now()});
+  // scroll down
+  editor.scrollTo(null, editor.getScrollInfo().height);
+}
+
+// purge expired messages periodically
+setInterval(()=> {
+  if(!editor) return;
+  const now = Date.now();
+  for(let i = messages.length - 1; i >= 0; i--){
+    if(now - messages[i].at >= EXPIRY_MS){
+      // remove first occurrence of that line from doc
+      const doc = editor.getDoc();
+      const all = doc.getValue().split('\n');
+      const idx = all.indexOf(messages[i].text);
+      if(idx !== -1) {
+        const start = {line: idx, ch:0};
+        const end = {line: idx+1, ch:0};
+        doc.replaceRange('', start, end);
+      }
+      messages.splice(i,1);
+    }
+  }
+}, 8000);
+
+// session timer UI
+let uiTimerInterval = null;
+function startSessionTimer(){
+  sessionStart = Date.now();
+  const endAt = sessionStart + SESSION_MS;
+  uiTimerInterval = setInterval(()=> {
+    const now = Date.now();
+    let remain = Math.max(0, endAt - now);
+    const h = String(Math.floor(remain/3600000)).padStart(2,'0');
+    remain %= 3600000;
+    const m = String(Math.floor(remain/60000)).padStart(2,'0');
+    remain %= 60000;
+    const s = String(Math.floor(remain/1000)).padStart(2,'0');
+    timerEl.textContent = `${h}:${m}:${s}`;
+    if(endAt - now <= 0) {
+      // inform peer and end
+      try{ peer && peer.send(JSON.stringify({type:'explode'})); }catch(e){}
+      endSession('Time up');
+    }
+  }, 1000);
+}
+
+// cleanup
+function endSession(reason){
+  try{ peer && peer.destroy(); }catch(e){}
+  try{ ws && ws.close(); }catch(e){}
+  clearInterval(uiTimerInterval);
+  overlay.style.display = 'flex';
+  entryWrap.style.display = 'none';
+  mainWrap.style.display = 'none';
+  setStatus('Disconnected','red');
+}
+
+// send via peer if connected
+function sendPayload(obj){
+  try{
+    if(peer && peer.connected) peer.send(JSON.stringify(obj));
+    else console.warn('no peer connection');
+  }catch(e){ console.warn(e); }
+}
+
+// message send helper
+function sendMessage(){
+  const text = msgInput.value.trim();
+  if(!text) return;
+  // show as code-looking line
+  const codeLine = `console.log(${JSON.stringify(text)});  // ${ts()}`;
+  appendLine(codeLine);
+  messages[messages.length-1].at = Date.now();
+  sendPayload({type:'msg', text});
+  msgInput.value = '';
+  // schedule delete (in case other side disconnected)
+  setTimeout(()=>{
+    // deletion handled by purge loop
+  }, EXPIRY_MS+200);
+}
+
+// ping helper
+function sendPing(){
+  appendLine(`// you pinged them — ${ts()}`);
+  sendPayload({type:'ping'});
+}
+
+// ---------- Signaling via public WebSocket relay ----------
+/*
+  Protocol used here (simple):
+  - Connect to SIGNAL_WS
+  - Send: {type:'join', room: ROOM}
+  - When creating a signal (offer/answer/candidate), send:
+      {type:'signal', room: ROOM, payload: <base64-json>}
+  - Relay will forward 'signal' messages to other clients in the same room.
+  Note: public relays can be flaky. If signaling fails, fallback to URL-hash method.
+*/
+
+function trySignalingRelay(roomName){
+  return new Promise((resolve, reject) => {
+    let connectedToRelay = false;
+    try {
+      ws = new WebSocket(SIGNAL_WS);
+    } catch(e){
+      reject(e);
+      return;
     }
 
-    function joinRoom() {
-      const room = document.getElementById('secret').value.trim();
-      if (!room) return;
+    const onWsError = (err) => {
+      cleanup();
+      reject(err || new Error('WebSocket error'));
+    };
 
-      document.getElementById('entry').style.display = 'none';
-      document.getElementById('chat').style.display = 'flex';
-
-      // Initialize CodeMirror
-      editor = CodeMirror(document.getElementById('editor'), {
-        lineNumbers: true,
-        mode: "javascript",
-        theme: "default",
-        readOnly: true
-      });
-
-      // One side will be initiator (decided randomly)
-      isInitiator = Math.random() > 0.5;
-
-      peer = new SimplePeer({ initiator: isInitiator, trickle:false });
-
-      peer.on('signal', data => {
-        // Encode signal into URL hash
-        const signalStr = btoa(JSON.stringify(data));
-        location.hash = room + ":" + signalStr;
-      });
-
-      window.addEventListener("hashchange", () => {
-        const hash = location.hash.substring(1);
-        if (!hash.startsWith(room)) return;
-        const theirSignal = hash.split(":")[1];
-        try {
-          peer.signal(JSON.parse(atob(theirSignal)));
-        } catch(e){}
-      });
-
-      peer.on('connect', () => {
-        setStatus("🟢 Connected", "lightgreen");
-        editor.setValue("// Connected. Session live for 2 hrs.\n");
-        sessionTimer = setTimeout(() => endSession(), 2*60*60*1000);
-      });
-
-      peer.on('data', data => {
-        const msg = JSON.parse(data.toString());
-        if (msg.type==="msg") {
-          addLine("console.log(\"" + msg.text + "\");");
-          setTimeout(() => editor.setValue(editor.getValue().replace("console.log(\"" + msg.text + "\");\n","")), 600000);
-        }
-        if (msg.type==="ping") {
-          addLine("// Someone is here 👀");
-          setTimeout(() => editor.setValue(editor.getValue().replace("// Someone is here 👀\n","")), 600000);
-        }
-      });
-
-      peer.on('close', () => setStatus("🔴 Disconnected", "red"));
-      peer.on('error', () => setStatus("⚠️ Error", "orange"));
-
-      document.getElementById('send').onclick = sendMessage;
-      document.getElementById('ping').onclick = () => {
-        peer.send(JSON.stringify({type:"ping"}));
-        addLine("// You pinged them");
-        setTimeout(() => editor.setValue(editor.getValue().replace("// You pinged them\n","")), 600000);
-      };
-      document.getElementById('msg').addEventListener("keypress", e=>{
-        if (e.key==="Enter") { e.preventDefault(); sendMessage(); }
-      });
+    function cleanup(){
+      if(ws){ ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; try{ ws.close(); }catch(e){} ws = null; }
     }
 
-    function sendMessage() {
-      const text = document.getElementById('msg').value.trim();
-      if (!text) return;
-      peer.send(JSON.stringify({type:"msg", text}));
-      addLine("console.log(\"" + text + "\");");
-      setTimeout(() => editor.setValue(editor.getValue().replace("console.log(\"" + text + "\");\n","")), 600000);
-      document.getElementById('msg').value = "";
-    }
+    ws.onopen = () => {
+      connectedToRelay = true;
+      // join room
+      ws.send(JSON.stringify({type:'join', room: roomName}));
+      resolve(ws);
+    };
 
-    function addLine(line) {
-      editor.setValue(editor.getValue() + line + "\n");
-    }
+    ws.onerror = onWsError;
+    ws.onclose = () => {
+      if(!connectedToRelay) reject(new Error('Relay closed'));
+    };
+  });
+}
 
-    function endSession() {
-      document.getElementById('chat').style.display = 'none';
-      document.getElementById('overlay').style.display = 'flex';
-      if (peer) peer.destroy();
+// wire simple-peer and ws
+function startSessionWithRelay(roomName){
+  // create peer; initiator value doesn't matter for simple relay approach:
+  // We'll let each side create a peer with initiator true/false randomly — that works.
+  const initiator = Math.random() > 0.5;
+  peer = new SimplePeer({ initiator, trickle: true, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } });
+
+  // when peer generates signal, send to relay as base64
+  peer.on('signal', data => {
+    if(ws && ws.readyState === WebSocket.OPEN){
+      const payload = btoa(JSON.stringify(data));
+      ws.send(JSON.stringify({type:'signal', room: roomName, payload}));
     }
-  </script>
+  });
+
+  // relay incoming signals from websocket to peer.signal
+  ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if(data && data.type === 'signal' && data.payload){
+        const obj = JSON.parse(atob(data.payload));
+        // feed to simple-peer
+        peer.signal(obj);
+      } else if (data && data.type === 'joined') {
+        // optional: someone joined -- we can show small hint
+        // noop
+      }
+    } catch(e){
+      console.warn('Invalid relay message', e);
+    }
+  };
+
+  peer.on('connect', () => {
+    setStatus('Connected','green');
+    appendLine(`// connected @ ${ts()} — session live for 2 hrs`);
+    startSessionTimer();
+  });
+
+  peer.on('data', (buf) => {
+    try {
+      const obj = JSON.parse(buf.toString());
+      if(obj.type === 'msg'){
+        const codeLine = `console.log(${JSON.stringify(obj.text)});  // ${ts()}`;
+        appendLine(codeLine);
+      } else if(obj.type === 'ping') {
+        appendLine(`// Someone is here 👀 — ${ts()}`);
+      } else if(obj.type === 'explode') {
+        endSession('Remote ended session');
+      }
+    } catch(e){ console.warn(e); }
+  });
+
+  peer.on('close', () => { setStatus('Disconnected','red'); });
+  peer.on('error', (e) => { console.warn('peer err', e); setStatus('Error','orange'); });
+
+  // UI bindings
+  sendBtn.onclick = sendMessage;
+  pingBtn.onclick = sendPing;
+  msgInput.addEventListener('keypress', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); sendMessage(); }
+  });
+}
+
+// Fallback manual-hash method (if relay unavailable)
+// This is what we used earlier: put the signal into URL hash and have user share link.
+// We'll automatically show instructions so the user can copy-paste the full URL if relay fails.
+function startSessionWithHashFallback(roomName){
+  hintArea.innerText = 'Relay unavailable → using manual link-exchange fallback. One person will get a link to copy & share.';
+  // create peer
+  const initiator = Math.random() > 0.5;
+  peer = new SimplePeer({ initiator, trickle:false, config:{ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } });
+
+  peer.on('signal', data => {
+    const encoded = btoa(JSON.stringify(data));
+    // put it in the URL hash as room:encoded
+    location.hash = `${roomName}:${encoded}`;
+    hintArea.innerText = 'Share the full URL in the address bar with your friend. They must open it (only once).';
+  });
+
+  // when hash changes, try to read other's signal and feed
+  window.addEventListener('hashchange', ()=> {
+    try {
+      const h = location.hash.substring(1);
+      if(!h.startsWith(roomName+':')) return;
+      const payload = h.split(':')[1];
+      if(!payload) return;
+      const obj = JSON.parse(atob(payload));
+      peer.signal(obj);
+    } catch(e){}
+  });
+
+  peer.on('connect', ()=>{
+    setStatus('Connected','green');
+    appendLine(`// connected @ ${ts()} — session live for 2 hrs`);
+    startSessionTimer();
+  });
+
+  peer.on('data', (buf) => {
+    try {
+      const obj = JSON.parse(buf.toString());
+      if(obj.type === 'msg'){
+        const codeLine = `console.log(${JSON.stringify(obj.text)});  // ${ts()}`;
+        appendLine(codeLine);
+      } else if(obj.type === 'ping'){
+        appendLine(`// Someone is here 👀 — ${ts()}`);
+      } else if(obj.type === 'explode'){
+        endSession('Remote ended session');
+      }
+    } catch(e){}
+  });
+
+  peer.on('close', ()=> setStatus('Disconnected','red'));
+  peer.on('error', (e)=> { console.warn(e); setStatus('Error','orange'); });
+
+  // UI
+  sendBtn.onclick = sendMessage;
+  pingBtn.onclick = sendPing;
+  msgInput.addEventListener('keypress', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); sendMessage(); }
+  });
+}
+
+
+// Entry button handler
+openBtn.onclick = async () => {
+  const phrase = phraseInput.value.trim();
+  if(!phrase) return alert('Type the secret phrase first');
+  room = phrase.toLowerCase();
+  // switch views
+  entryWrap.style.display = 'none';
+  mainWrap.style.display = 'flex';
+  roomLabel.textContent = 'room: ' + shortRoom(room);
+  setStatus('Connecting…','yellow');
+
+  initEditor();
+
+  // try the public relay first
+  try {
+    hintArea.innerText = 'Connecting to relay…';
+    await trySignalingRelay(room); // sets global 'ws'
+    hintArea.innerText = 'Using relay — auto-connecting';
+    startSessionWithRelay(room);
+  } catch(e){
+    console.warn('Relay failed', e);
+    // fallback to hash/manual method
+    hintArea.innerText = 'Relay unavailable — falling back to manual link sharing.';
+    startSessionWithHashFallback(room);
+  }
+};
+
+// Ensure messages are cleared from UI when session ends via remote request
+// also allow pressing Escape to hide composer quickly (stealth)
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape'){
+    // hide composer for stealth
+    const comp = document.getElementById('composer');
+    if(comp.style.display === 'none') comp.style.display = 'flex';
+    else comp.style.display = 'none';
+  }
+});
+
+// Allow manual end (for testing)
+// You can call endSession() from browser console to quickly kill session.
+
+</script>
 </body>
 </html>
