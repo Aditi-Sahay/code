@@ -2,172 +2,356 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Code Editor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- CodeMirror CSS -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css">
+  <title>codepad.html</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- CodeMirror (Editor disguise) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" integrity="sha512-aKx+Yw0MyHnQtVhblm7o+ER2f1Q0f4b7y9pmrX6X8/b1eCQtN1z3gmwDiZrZ3mDa3A2q8o8b5zZrG1mJ9Z3hNw==" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" integrity="sha512-Xl+L1b7Qe2JzQx9vYqQqCtnE2rZ1p2nP8xN0U5QeV3WJQv7L4C6eY1yKx2xvJ8y3n2v+Vd2mS1M0p4ZQH5JQ6w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" integrity="sha512-9kC7hKIMK6o0k6nUD7rTAL8v3kQy1D5m1cYwE3sGM4Nf2iJ5FJ2sG1oE9hpgvH1H4vX2GmJ3p1m3r0V2qg0sEQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <!-- PeerJS (lightweight WebRTC signaling) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
   <style>
-    body {
-      margin: 0;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      font-family: monospace;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+    :root{
+      --bg: #0f1115; /* vscode-ish dark */
+      --panel: #151822;
+      --soft: #1b2030;
+      --text: #d9d9e3;
+      --muted: #8891a1;
+      --accent: #6ee7b7; /* greenish */
+      --red: #f87171;
+      --yellow: #fde047;
     }
-    #entry {
-      margin: auto;
-      text-align: center;
+    *{ box-sizing: border-box; }
+    html, body{ height:100%; }
+    body{
+      margin:0; background:var(--bg); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
-    input, button {
-      padding: 8px;
-      margin: 5px;
-      font-size: 16px;
-    }
-    #editor {
-      flex: 1;
-      height: 80vh;
-    }
-    #bottom {
-      display: flex;
-      padding: 8px;
-      background: #252526;
-    }
-    #msg {
-      flex: 1;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      border: 1px solid #333;
-      padding: 6px;
-      font-family: monospace;
-    }
-    #send, #ping {
-      margin-left: 8px;
-      padding: 6px 12px;
-      background: #0e639c;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-    #overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(30,30,30,0.95);
-      color: white;
-      display: none;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px;
-      z-index: 10;
-    }
+    .bar{ height:36px; background:#0b0d12; border-bottom:1px solid #0d1120; display:flex; align-items:center; gap:12px; padding:0 12px; }
+    .dot{ width:10px; height:10px; border-radius:50%; }
+    .dot.red{ background:#ff5f56; } .dot.yellow{ background:#ffbd2e; } .dot.green{ background:#27c93f; }
+    .title{ font-size:12px; color:var(--muted); }
+
+    .container{ display:grid; grid-template-rows:auto 1fr auto; height:calc(100% - 0px); }
+
+    .entry{ max-width:520px; margin:60px auto; background:var(--panel); border:1px solid #1f2335; border-radius:16px; padding:24px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      display:flex; flex-direction:column; gap:14px; }
+    .entry h1{ margin:0; font-size:18px; color:#e5e7eb; }
+    .entry p{ margin:0; color:var(--muted); font-size:13px; }
+    .row{ display:flex; gap:8px; }
+    input[type=text]{ flex:1; background:#0e1220; color:#e5e7eb; border:1px solid #1f2335; border-radius:10px; padding:12px 14px; outline:none; font-size:14px; }
+    button{ background:#0e1220; color:#e5e7eb; border:1px solid #283044; border-radius:10px; padding:10px 14px; cursor:pointer; font-weight:600; }
+    button:hover{ border-color:#3a4766; }
+    .hint{ font-size:12px; color:var(--muted); }
+
+    .main{ display:none; height:100%; grid-template-rows:auto 1fr auto; }
+
+    /* Editor area */
+    .editor-wrap{ display:grid; grid-template-columns: 220px 1fr; height: calc(100vh - 120px); }
+    .sidebar{ background:var(--panel); border-right:1px solid #1f2335; padding:10px; font-size:12px; color:var(--muted); }
+    .fakefile{ padding:8px 10px; border-radius:8px; margin-bottom:6px; background:transparent; }
+    .fakefile.active{ background:var(--soft); color:#cbd5e1; }
+
+    .cm-theme{ height:100%; }
+    .CodeMirror{ height:100%; background:#0b0f1a; color:#e5e7eb; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:13px; }
+    .CodeMirror-gutters{ background:#0b0f1a; border-right:1px solid #121729; }
+
+    /* bottom input ("terminal") */
+    .composer{ display:flex; gap:8px; align-items:center; padding:10px; background:#0b0f1a; border-top:1px solid #121729; }
+    .composer input{ flex:1; background:#0e1220; border:1px solid #1f2335; color:#e5e7eb; border-radius:10px; padding:10px 12px; font-size:13px; }
+
+    .statusbar{ display:flex; justify-content:space-between; padding:6px 10px; background:#0b0d12; border-top:1px solid #0d1120; font-size:12px; color:var(--muted); }
+    .badge{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background:#0e1220; border:1px solid #1f2335; color:#9ca3af; }
+    .badge .dot{ width:6px; height:6px; }
+
+    .timer{ font-variant-numeric: tabular-nums; }
+
+    /* overlays */
+    .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.8); z-index:20; }
+    .overlay .card{ background:#0c1220; border:1px solid #1f2335; border-radius:16px; padding:20px; max-width:420px; text-align:center; }
+    .overlay h2{ margin:0 0 8px; font-size:18px; }
+    .overlay p{ margin:0 0 16px; color:#9ca3af; font-size:13px; }
   </style>
 </head>
 <body>
-  <div id="entry">
-    <h2 style="color:white;">Enter Secret Phrase</h2>
-    <input id="secret" placeholder="Secret phrase"/>
-    <button onclick="joinRoom()">Open</button>
+  <div class="container">
+    <div class="bar">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+      <div class="title">codepad.html — Visual Studio Code</div>
+    </div>
+
+    <!-- ENTRY -->
+    <section class="entry" id="entry">
+      <h1>Open file</h1>
+      <p>Enter a <b>secret phrase</b> to open the same file as your friend. Looks like code. Actually chat.</p>
+      <div class="row">
+        <input id="phrase" type="text" placeholder="e.g. mango42" autocomplete="off" />
+        <button id="joinBtn">Open</button>
+      </div>
+      <p class="hint">• If the file is already open by someone else, you'll join them. • Nothing is saved. • Messages auto-delete after 10 minutes. • Session self-closes in 2 hours.</p>
+    </section>
+
+    <!-- MAIN -->
+    <section class="main" id="main">
+      <div class="editor-wrap">
+        <aside class="sidebar">
+          <div class="fakefile active" id="fileLabel">codepad/<b>main.js</b></div>
+          <div class="fakefile">README.md</div>
+          <div class="fakefile">package.json</div>
+        </aside>
+        <div id="editor"></div>
+      </div>
+
+      <div class="composer">
+        <button id="pingBtn" title="Send presence ping">Ping</button>
+        <input id="msg" type="text" placeholder="Type and press Enter…" autocomplete="off" />
+        <button id="sendBtn">Send</button>
+      </div>
+
+      <div class="statusbar">
+        <div>
+          <span class="badge"><span class="dot" id="connDot" style="background:#ef4444"></span><span id="connText">Disconnected</span></span>
+          <span class="badge">room:<span id="roomShort">—</span></span>
+        </div>
+        <div>
+          <span class="badge">msg expiry: <b>10m</b></span>
+          <span class="badge timer" id="timer">02:00:00</span>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <div id="chat" style="display:none; flex:1; flex-direction:column;">
-    <div id="editor"></div>
-    <div id="bottom">
-      <input id="msg" placeholder="Type here..." />
-      <button id="send">Send</button>
-      <button id="ping">Ping</button>
+  <!-- Session ended overlay -->
+  <div class="overlay" id="endOverlay">
+    <div class="card">
+      <h2>Session ended</h2>
+      <p>2 hours are up. Connection closed and messages wiped.</p>
+      <button onclick="location.reload()">Start new</button>
     </div>
   </div>
 
-  <div id="overlay">⏳ Session Ended</div>
-
-  <!-- CodeMirror + PeerJS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/javascript/javascript.min.js"></script>
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    let editor, peer, conn, room, timer;
-    let sessionTimer;
+    // ===== Utilities =====
+    const $ = (id) => document.getElementById(id);
 
-    function joinRoom() {
-      room = document.getElementById('secret').value.trim();
-      if (!room) return;
-      document.getElementById('entry').style.display = 'none';
-      document.getElementById('chat').style.display = 'flex';
+    // Simple djb2 hash to derive a stable room id from the phrase
+    function hashPhrase(str){
+      let h = 5381;
+      for (let i=0;i<str.length;i++) h = ((h<<5)+h) + str.charCodeAt(i);
+      return ('room-' + (h>>>0).toString(36));
+    }
 
-      // Initialize CodeMirror
-      editor = CodeMirror(document.getElementById('editor'), {
+    function shortId(id){ return id.slice(0, 10) + '…'; }
+
+    // Timestamp like 14:05:09
+    function ts(){ const d = new Date(); return d.toLocaleTimeString([], {hour12:false}); }
+
+    // Insert a line into the CodeMirror doc that looks like code
+    function makeLine(user, text){
+      // disguise as code: prefix with a fake function call and a timestamp
+      const safe = text.replace(/\n/g, ' ');
+      const prefix = user === 'me' ? '// ' : '';
+      return `${prefix}${user === 'me' ? 'me' : 'peer'}(${JSON.stringify(safe)});  // ${ts()}`;
+    }
+
+    // ===== State =====
+    let cm;                 // CodeMirror instance
+    let peer;               // PeerJS instance
+    let conn;               // DataConnection
+    let roomId = '';
+    let sessionStart = null;
+    const EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+    const MAX_SESSION_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+    // Track message times to purge from editor
+    const lines = []; // {line:number, at:number}
+
+    // ===== Editor Setup =====
+    function initEditor(){
+      cm = CodeMirror($('editor'), {
+        value: `// codepad: ephemeral editor\n// messages appear as code, vanish after 10 minutes.\n\n`,
+        mode: 'javascript',
         lineNumbers: true,
-        mode: "javascript",
-        theme: "default",
-        readOnly: true
+        readOnly: 'nocursor', // read-only to look like viewing code
+        theme: 'default',
       });
-
-      // Create PeerJS ID based on phrase
-      peer = new Peer(room + "-host", { debug: 2 });
-
-      peer.on('open', id => {
-        console.log("Host ID:", id);
+      cm.addKeyMap({
+        Enter: function(){ sendMsg(); }
       });
+    }
 
-      peer.on('connection', c => {
-        if (conn) { c.close(); return; }
-        conn = c;
-        setupConnection();
-      });
+    // Append and record a line; returns line number
+    function appendLine(text){
+      const doc = cm.getDoc();
+      const lastLine = doc.lastLine();
+      doc.replaceRange(text + '\n', {line:lastLine+1, ch:0});
+      const lineNo = doc.lastLine();
+      lines.push({ line: lineNo, at: Date.now() });
+      cm.scrollTo(null, cm.getScrollInfo().height);
+      return lineNo;
+    }
 
-      peer.on('error', () => {
-        // If host taken, connect as client
-        peer = new Peer();
-        peer.on('open', () => {
-          conn = peer.connect(room + "-host");
-          conn.on('open', setupConnection);
+    // Purge expired lines every 15s
+    setInterval(() => {
+      const now = Date.now();
+      // filter lines to keep; delete expired from doc
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (now - lines[i].at >= EXPIRY_MS) {
+          cm.getDoc().removeLine(lines[i].line);
+          lines.splice(i,1);
+        }
+      }
+    }, 15000);
+
+    // ===== PeerJS / Connection Logic =====
+    function setupPeer(){
+      // Try to claim the room id as our peer id (be the host). If taken, fall back to random id and connect to host.
+      tryHost(roomId).catch(() => tryClient(roomId));
+    }
+
+    function tryHost(id){
+      return new Promise((resolve, reject) => {
+        peer = new Peer(id); // use PeerJS Cloud by default
+        peer.on('open', (pid) => {
+          // Host waits for one connection
+          $('connText').textContent = 'Waiting…';
+          $('connDot').style.background = '#fde047';
+          appendLine(`// waiting for peer on ${shortId(roomId)} …`);
+          peer.on('connection', (c) => {
+            if (conn) { c.close(); return; } // allow only one peer
+            conn = c;
+            bindConn();
+            resolve();
+          });
+        });
+        peer.on('error', (err) => {
+          if (String(err).includes('unavailable-id')) {
+            peer.destroy();
+            reject(err);
+          } else {
+            console.error(err);
+          }
         });
       });
     }
 
-    function setupConnection() {
-      editor.setValue("// Connected. Session live for 2 hrs.\n");
-      conn.on('data', data => {
-        if (data.type === "msg") {
-          addLine("// " + data.text);
-          setTimeout(() => editor.setValue(editor.getValue().replace("// " + data.text + "\n", "")), 600000);
-        } else if (data.type === "ping") {
-          addLine("// Someone is here 👀");
-          setTimeout(() => editor.setValue(editor.getValue().replace("// Someone is here 👀\n", "")), 600000);
-        }
+    function tryClient(id){
+      return new Promise((resolve, reject) => {
+        peer = new Peer(); // random id
+        peer.on('open', () => {
+          conn = peer.connect(id, { reliable: true });
+          conn.on('open', () => { bindConn(); resolve(); });
+          conn.on('error', reject);
+        });
+        peer.on('error', reject);
       });
-
-      document.getElementById('send').onclick = sendMessage;
-      document.getElementById('ping').onclick = () => {
-        conn.send({type:"ping"});
-        addLine("// You pinged them");
-        setTimeout(() => editor.setValue(editor.getValue().replace("// You pinged them\n", "")), 600000);
-      };
-
-      // 2 hour session limit
-      sessionTimer = setTimeout(() => endSession(), 2*60*60*1000);
     }
 
-    function sendMessage() {
-      const text = document.getElementById('msg').value.trim();
+    function bindConn(){
+      $('connText').textContent = 'Connected';
+      $('connDot').style.background = '#22c55e';
+      appendLine(`// connected on ${shortId(roomId)} at ${ts()}`);
+      sessionStart = Date.now();
+      startSessionTimer();
+
+      conn.on('data', onData);
+      conn.on('close', () => endSession('Peer left'));
+      conn.on('error', () => endSession('Connection error'));
+    }
+
+    function onData(payload){
+      if (!payload || !payload.type) return;
+      if (payload.type === 'msg') {
+        appendLine(makeLine('peer', payload.text));
+      } else if (payload.type === 'ping') {
+        appendLine(`console.info("user presence: here @ ${ts()}");`);
+        flashTitle();
+      } else if (payload.type === 'explode') {
+        endSession('Session ended');
+      }
+    }
+
+    function send(payload){ if (conn && conn.open) conn.send(payload); }
+
+    function sendMsg(){
+      const el = $('msg');
+      const text = el.value.trim();
       if (!text) return;
-      conn.send({type:"msg", text});
-      addLine("console.log(\"" + text + "\");");
-      setTimeout(() => editor.setValue(editor.getValue().replace("console.log(\"" + text + "\");\n", "")), 600000);
-      document.getElementById('msg').value = "";
+      appendLine(makeLine('me', text));
+      send({ type: 'msg', text });
+      el.value = '';
     }
 
-    function addLine(line) {
-      editor.setValue(editor.getValue() + line + "\n");
+    $('sendBtn').onclick = sendMsg;
+    $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg(); });
+
+    $('pingBtn').onclick = () => {
+      appendLine('console.info("I am here");');
+      send({ type: 'ping' });
+      flashTitle();
+    };
+
+    function flashTitle(){
+      const t = document.title;
+      document.title = 'build: running…';
+      setTimeout(() => document.title = t, 1000);
     }
 
-    function endSession() {
-      document.getElementById('chat').style.display = 'none';
-      document.getElementById('overlay').style.display = 'flex';
-      if (conn) conn.close();
-      if (peer) peer.destroy();
+    // ===== Session Timer =====
+    let sessionTimer;
+    function startSessionTimer(){
+      const endAt = sessionStart + MAX_SESSION_MS;
+      sessionTimer = setInterval(() => {
+        const now = Date.now();
+        let remain = Math.max(0, endAt - now);
+        const h = String(Math.floor(remain / 3600000)).padStart(2,'0');
+        remain %= 3600000;
+        const m = String(Math.floor(remain / 60000)).padStart(2,'0');
+        remain %= 60000;
+        const s = String(Math.floor(remain / 1000)).padStart(2,'0');
+        $('timer').textContent = `${h}:${m}:${s}`;
+        if (endAt - now <= 0) {
+          // inform peer to also end
+          send({ type: 'explode' });
+          endSession('Time up');
+        }
+      }, 1000);
     }
+
+    function endSession(reason){
+      try{ conn && conn.close(); }catch{}
+      try{ peer && peer.destroy(); }catch{}
+      clearInterval(sessionTimer);
+      // wipe editor content
+      const doc = cm.getDoc();
+      const total = doc.lastLine();
+      doc.replaceRange('', {line:0, ch:0}, {line: total, ch: 1000});
+      $('endOverlay').style.display = 'flex';
+      // attempt tab close (may be blocked)
+      setTimeout(() => { try { window.close(); } catch(e) {} }, 800);
+    }
+
+    // ===== Entry Flow =====
+    $('joinBtn').onclick = async () => {
+      const phrase = $('phrase').value.trim();
+      if (!phrase) return;
+      roomId = hashPhrase(phrase.toLowerCase());
+      $('roomShort').textContent = shortId(roomId);
+
+      $('entry').style.display = 'none';
+      $('main').style.display = 'grid';
+      initEditor();
+      $('fileLabel').innerHTML = `codepad/<b>${phrase.replace(/\s+/g,'_')}.js</b>`;
+
+      try { setupPeer(); } catch (e) { console.error(e); }
+    };
   </script>
 </body>
 </html>
