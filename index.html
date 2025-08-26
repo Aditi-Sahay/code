@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Innocent Code Editor</title>
+  <title>Code Editor</title>
   <style>
     body {
       background: #1e1e1e;
@@ -29,70 +29,59 @@
   </style>
 </head>
 <body>
-  <div id="status">Waiting for connection...</div>
-  <div id="editor" contenteditable="true">// Start typing your "code" here...</div>
+  <div id="status">Loading...</div>
+  <div id="editor" contenteditable="true">// Start typing...</div>
 
-  <!-- PeerJS library -->
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const room = urlParams.get("room") || prompt("Enter secret room name:");
+    const room = prompt("Enter secret phrase:"); 
     const id = Math.random().toString(36).substring(2, 9);
+    const status = document.getElementById("status");
+    const editor = document.getElementById("editor");
 
-    const status = document.getElementById('status');
-    const editor = document.getElementById('editor');
+    let peer = new Peer(id); // 👈 uses PeerJS default free server
+    let conn;
 
-    let peer, conn;
+    peer.on("open", () => {
+      status.textContent = "Peer ready. ID: " + id;
+      if (id.localeCompare(room) > 0) {
+        status.textContent = "Hosting room " + room + "... waiting for peer";
+      } else {
+        status.textContent = "Connecting to " + room + "...";
+        conn = peer.connect(room);
+        conn.on("open", setupConn);
+      }
+    });
 
-    function initPeer() {
-      // 👇 CHANGE THIS to your deployed PeerJS server
-      peer = new Peer(id, {
-        host: 'your-app.onrender.com',  // e.g. "myrelay.onrender.com"
-        port: 443,
-        secure: true,
-        path: '/peerjs' // default PeerJS path
-      });
-
-      peer.on('open', () => {
-        status.textContent = "Peer ready. ID: " + id;
-        if (id.localeCompare(room) > 0) {
-          // act as host
-          tryHost();
-        } else {
-          // act as client
-          tryClient();
-        }
-      });
-
-      peer.on('connection', (c) => {
-        conn = c;
-        setupConn();
-      });
-    }
-
-    function tryHost() {
-      status.textContent = "Hosting room " + room + "... waiting for peer";
-    }
-
-    function tryClient() {
-      status.textContent = "Connecting to host...";
-      conn = peer.connect(room);
-      conn.on('open', setupConn);
-    }
+    peer.on("connection", (c) => {
+      conn = c;
+      setupConn();
+    });
 
     function setupConn() {
       status.textContent = "Connected!";
-      conn.on('data', (data) => {
+      conn.on("data", (data) => {
         editor.innerText = data;
       });
-
-      // Send updates as user types
-      editor.addEventListener('input', () => {
+      editor.addEventListener("input", () => {
         if (conn.open) conn.send(editor.innerText);
       });
     }
 
-    initPeer();
+    // 🕒 Auto-delete every 10 minutes
+    setInterval(() => {
+      editor.innerText = "// (cleared)";
+      if (conn && conn.open) conn.send("// (cleared)");
+      status.textContent = "Chat cleared (every 10 min rule)";
+    }, 10 * 60 * 1000);
+
+    // ⏳ Auto-shutdown in 2 hours
+    setTimeout(() => {
+      alert("Session expired (2 hours). Closing now.");
+      window.close(); // will close if opened in a new tab
+      editor.contentEditable = "false";
+      status.textContent = "Session expired.";
+    }, 2 * 60 * 60 * 1000);
   </script>
 </body>
 </html>
